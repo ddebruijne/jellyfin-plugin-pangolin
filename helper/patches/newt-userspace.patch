@@ -1,0 +1,244 @@
+diff -ruN a/network/interface.go b/network/interface.go
+--- a/network/interface.go
++++ b/network/interface.go
+@@ -5,7 +5,6 @@
+ 	"net"
+ 	"os/exec"
+ 	"regexp"
+-	"runtime"
+ 	"strconv"
+ 	"time"
+ 
+@@ -37,7 +36,7 @@
+ 		return nil
+ 	}
+ 
+-	switch runtime.GOOS {
++	switch nativeGOOS() {
+ 	case "linux":
+ 		return configureLinux(interfaceName, ip, ipNet)
+ 	case "darwin":
+@@ -192,7 +191,7 @@
+ 		return nil
+ 	}
+ 
+-	switch runtime.GOOS {
++	switch nativeGOOS() {
+ 	case "linux":
+ 		return configureLinux(interfaceName, ip, ipNet)
+ 	case "darwin":
+@@ -219,7 +218,7 @@
+ 		return nil
+ 	}
+ 
+-	switch runtime.GOOS {
++	switch nativeGOOS() {
+ 	case "linux":
+ 		return removeLinuxAddress(interfaceName, ip, ipNet)
+ 	case "darwin":
+diff -ruN a/network/nativegoos.go b/network/nativegoos.go
+--- a/network/nativegoos.go
++++ b/network/nativegoos.go
+@@ -0,0 +1,15 @@
++package network
++
++import "runtime"
++
++// nativeGOOS reports the OS whose routing and interface code should run. With
++// NativeConfigDisabled set it returns "userspace", which no switch in this
++// package handles, so every route, address and interface change is skipped.
++//
++// Added by jellyfin-plugin-pangolin; not part of upstream newt.
++func nativeGOOS() string {
++	if NativeConfigDisabled {
++		return "userspace"
++	}
++	return runtime.GOOS
++}
+diff -ruN a/network/route.go b/network/route.go
+--- a/network/route.go
++++ b/network/route.go
+@@ -5,7 +5,6 @@
+ 	"fmt"
+ 	"net"
+ 	"os/exec"
+-	"runtime"
+ 	"strings"
+ 
+ 	"github.com/fosrl/newt/logger"
+@@ -75,7 +74,7 @@
+ // packets whose source doesn't match the peer's configured AllowedIPs, even
+ // though the tunnel/handshake itself stays up.
+ func DarwinAddRouteWithSource(destination string, gateway string, interfaceName string, sourceIP string) error {
+-	if runtime.GOOS != "darwin" {
++	if nativeGOOS() != "darwin" {
+ 		return nil
+ 	}
+ 	if NativeConfigDisabled {
+@@ -111,7 +110,7 @@
+ }
+ 
+ func DarwinRemoveRoute(destination string) error {
+-	if runtime.GOOS != "darwin" {
++	if nativeGOOS() != "darwin" {
+ 		return nil
+ 	}
+ 	if NativeConfigDisabled {
+@@ -130,7 +129,7 @@
+ }
+ 
+ func LinuxAddRoute(destination string, gateway string, interfaceName string) error {
+-	if runtime.GOOS != "linux" {
++	if nativeGOOS() != "linux" {
+ 		return nil
+ 	}
+ 
+@@ -180,7 +179,7 @@
+ }
+ 
+ func LinuxRemoveRoute(destination string, interfaceName string) error {
+-	if runtime.GOOS != "linux" {
++	if nativeGOOS() != "linux" {
+ 		return nil
+ 	}
+ 
+@@ -233,7 +232,7 @@
+ // Routes on tunnelInterface are ignored when picking that path - see
+ // linuxBypassNextHop. Replaces any existing /32 route to destIP.
+ func LinuxAddBypassRoute(destIP string, tunnelInterface string) error {
+-	if runtime.GOOS != "linux" {
++	if nativeGOOS() != "linux" {
+ 		return nil
+ 	}
+ 	_, err := linuxEnsureBypassRoute(destIP, tunnelInterface)
+@@ -352,7 +351,7 @@
+ // specific match for destIP and RouteGet would just find itself - so it
+ // instead deletes by destination alone.
+ func LinuxRemoveBypassRoute(destIP string) error {
+-	if runtime.GOOS != "linux" {
++	if nativeGOOS() != "linux" {
+ 		return nil
+ 	}
+ 
+@@ -380,7 +379,7 @@
+ // capturing destIP - the physical default route, which the gateway route
+ // deliberately leaves in place, is used instead (see darwinBypassNextHop).
+ func DarwinAddBypassRoute(destIP string, tunnelInterface string) error {
+-	if runtime.GOOS != "darwin" {
++	if nativeGOOS() != "darwin" {
+ 		return nil
+ 	}
+ 	if NativeConfigDisabled {
+@@ -536,7 +535,7 @@
+ // DarwinRemoveBypassRoute removes a route previously added by
+ // DarwinAddBypassRoute.
+ func DarwinRemoveBypassRoute(destIP string) error {
+-	if runtime.GOOS != "darwin" {
++	if nativeGOOS() != "darwin" {
+ 		return nil
+ 	}
+ 	return DarwinRemoveRoute(destIP + "/32")
+@@ -557,7 +556,7 @@
+ func AddGatewayDefaultRoute(interfaceName, sourceIP string) error {
+ 	AddIPv4IncludedRoute(IPv4Route{DestinationAddress: "0.0.0.0", SubnetMask: "0.0.0.0", IsDefault: true})
+ 
+-	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
++	if nativeGOOS() == "android" || nativeGOOS() == "ios" {
+ 		return nil
+ 	}
+ 	return AddRoutesWithSource([]string{"0.0.0.0/1", "128.0.0.0/1"}, interfaceName, sourceIP)
+@@ -567,7 +566,7 @@
+ func RemoveGatewayDefaultRoute(interfaceName string) error {
+ 	RemoveIPv4IncludedRoute(IPv4Route{DestinationAddress: "0.0.0.0", SubnetMask: "0.0.0.0", IsDefault: true})
+ 
+-	if runtime.GOOS == "android" || runtime.GOOS == "ios" {
++	if nativeGOOS() == "android" || nativeGOOS() == "ios" {
+ 		return nil
+ 	}
+ 	return RemoveRoutes([]string{"0.0.0.0/1", "128.0.0.0/1"}, interfaceName)
+@@ -595,7 +594,7 @@
+ func AddBypassRouteForDestination(destIP string, tunnelInterface string) error {
+ 	AddIPv4ExcludedRoute(IPv4Route{DestinationAddress: destIP, SubnetMask: "255.255.255.255"})
+ 
+-	switch runtime.GOOS {
++	switch nativeGOOS() {
+ 	case "linux":
+ 		return LinuxAddBypassRoute(destIP, tunnelInterface)
+ 	case "darwin":
+@@ -620,7 +619,7 @@
+ 	if !ManagesHostRoutes() {
+ 		return false, nil
+ 	}
+-	switch runtime.GOOS {
++	switch nativeGOOS() {
+ 	case "linux":
+ 		return linuxEnsureBypassRoute(destIP, tunnelInterface)
+ 	case "darwin":
+@@ -635,7 +634,7 @@
+ // OS routing table itself (desktop platforms), as opposed to only populating
+ // NetworkSettings for a mobile/NetworkExtension host app to apply.
+ func ManagesHostRoutes() bool {
+-	switch runtime.GOOS {
++	switch nativeGOOS() {
+ 	case "linux", "windows":
+ 		return true
+ 	case "darwin":
+@@ -648,7 +647,7 @@
+ func RemoveBypassRouteForDestination(destIP string) error {
+ 	RemoveIPv4ExcludedRoute(IPv4Route{DestinationAddress: destIP, SubnetMask: "255.255.255.255"})
+ 
+-	switch runtime.GOOS {
++	switch nativeGOOS() {
+ 	case "linux":
+ 		return LinuxRemoveBypassRoute(destIP)
+ 	case "darwin":
+@@ -683,12 +682,12 @@
+ 	}
+ 
+ 	// TODO: does this also need to be ios?
+-	if runtime.GOOS == "darwin" { // macos requires routes for each peer to be added but this messes with other platforms
++	if nativeGOOS() == "darwin" { // macos requires routes for each peer to be added but this messes with other platforms
+ 		return DarwinAddRouteWithSource(serverIP, "", interfaceName, sourceIP)
+ 	}
+-	// else if runtime.GOOS == "windows" {
++	// else if nativeGOOS() == "windows" {
+ 	//	return WindowsAddRoute(serverIP, "", interfaceName)
+-	// } else if runtime.GOOS == "linux" {
++	// } else if nativeGOOS() == "linux" {
+ 	//	return LinuxAddRoute(serverIP, "", interfaceName)
+ 	// }
+ 	return nil
+@@ -713,12 +712,12 @@
+ 	}
+ 
+ 	// TODO: does this also need to be ios?
+-	if runtime.GOOS == "darwin" { // macos requires routes for each peer to be added but this messes with other platforms
++	if nativeGOOS() == "darwin" { // macos requires routes for each peer to be added but this messes with other platforms
+ 		return DarwinRemoveRoute(serverIP)
+ 	}
+-	// else if runtime.GOOS == "windows" {
++	// else if nativeGOOS() == "windows" {
+ 	// 	return WindowsRemoveRoute(serverIP, interfaceName)
+-	// } else if runtime.GOOS == "linux" {
++	// } else if nativeGOOS() == "linux" {
+ 	// 	return LinuxRemoveRoute(serverIP, interfaceName)
+ 	// }
+ 	return nil
+@@ -812,7 +811,7 @@
+ 			continue
+ 		}
+ 
+-		switch runtime.GOOS {
++		switch nativeGOOS() {
+ 		case "darwin":
+ 			if err := DarwinAddRouteWithSource(subnet, "", interfaceName, sourceIP); err != nil {
+ 				logger.Error("Failed to add Darwin route for subnet %s: %v", subnet, err)
+@@ -857,7 +856,7 @@
+ 		}
+ 
+ 		// Remove route based on operating system
+-		switch runtime.GOOS {
++		switch nativeGOOS() {
+ 		case "darwin":
+ 			if err := DarwinRemoveRoute(subnet); err != nil {
+ 				logger.Error("Failed to remove Darwin route for subnet %s: %v", subnet, err)

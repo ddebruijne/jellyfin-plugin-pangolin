@@ -16,9 +16,10 @@ public sealed class OlmApiClient : IDisposable
     /// <summary>
     /// The socket path the Pangolin CLI always uses on Linux and macOS.
     /// </summary>
-    public const string SocketPath = "/var/run/olm.sock";
+    public const string SystemSocketPath = "/var/run/olm.sock";
 
     private readonly HttpClient _httpClient;
+    private volatile string _socketPath = SystemSocketPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OlmApiClient"/> class.
@@ -32,7 +33,7 @@ public sealed class OlmApiClient : IDisposable
                 var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
                 try
                 {
-                    await socket.ConnectAsync(new UnixDomainSocketEndPoint(SocketPath), cancellationToken).ConfigureAwait(false);
+                    await socket.ConnectAsync(new UnixDomainSocketEndPoint(_socketPath), cancellationToken).ConfigureAwait(false);
                     return new NetworkStream(socket, ownsSocket: true);
                 }
                 catch
@@ -51,13 +52,22 @@ public sealed class OlmApiClient : IDisposable
     }
 
     /// <summary>
+    /// Gets or sets the socket the client serves its API on.
+    /// </summary>
+    public string SocketPath
+    {
+        get => _socketPath;
+        set => _socketPath = value;
+    }
+
+    /// <summary>
     /// Checks whether a Pangolin client is answering on the socket.
     /// </summary>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns><c>true</c> if a client responded.</returns>
     public async Task<bool> IsRunningAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(SocketPath))
+        if (!File.Exists(_socketPath))
         {
             return false;
         }

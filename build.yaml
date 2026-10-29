@@ -1,18 +1,21 @@
 name: "Pangolin"
 guid: "42c6c2e7-09d5-4b7f-a6d6-d96cf3d02621"
-version: "1.0.1.0"
+version: "1.1.0.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Reach private resources on a Pangolin network (e.g. an LDAPS server)"
 description: >
-  Runs the Pangolin CLI as a machine client alongside Jellyfin, so the server
-  can reach Pangolin private resources such as an LDAP server for the LDAP
-  Authentication plugin. Supervises the tunnel, shows peer status, and can
-  test TCP/TLS reachability of a resource.
+  Connects Jellyfin to a Pangolin network as a machine client so the server can
+  reach private resources, such as an LDAP server for the LDAP Authentication
+  plugin. Userspace mode needs no root and forwards local ports; system mode
+  runs the Pangolin CLI. Shows peer status and can test TCP/TLS reachability.
 category: "General"
 owner: "ddebruijne"
 artifacts:
 - "Jellyfin.Plugin.Pangolin.dll"
+- "pangolin-userspace_linux_amd64"
+- "pangolin-userspace_linux_arm64"
 changelog: >
-  Explain up front when Jellyfin isn't running as root or sudo is missing
-  (e.g. the linuxserver.io image) instead of failing or retrying.
+  New userspace mode, the default: runs the tunnel without root, NET_ADMIN or
+  /dev/net/tun and forwards local ports to Pangolin resources, for managed
+  hosts and unprivileged containers. System mode (the Pangolin CLI) is unchanged.

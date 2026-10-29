@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -53,6 +54,7 @@ public sealed partial class TunnelManager : IHostedService, IDisposable
     private int? _lastExitCode;
     private string? _executablePath;
     private string? _appliedFingerprint;
+    private string? _secret;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TunnelManager"/> class.
@@ -201,18 +203,44 @@ public sealed partial class TunnelManager : IHostedService, IDisposable
     {
         // The settings that affect the client process. Saving only the connection test
         // fields shouldn't drop the tunnel.
+        IEnumerable<string> modeParts = config.UserspaceMode
+            ? ["userspace", .. PangolinCommand.BuildUserspaceArguments(config, string.Empty)]
+            : ["system", config.BinaryPath.Trim(), config.CliVersion.Trim(), config.UseSudo ? "sudo" : "direct", .. PangolinCommand.BuildArguments(config)];
         IEnumerable<string> parts =
         [
             config.Enabled ? "enabled" : "disabled",
             config.Endpoint.Trim(),
             config.ClientId.Trim(),
             config.ClientSecret.Trim(),
-            config.BinaryPath.Trim(),
-            config.CliVersion.Trim(),
-            config.UseSudo ? "sudo" : "direct",
-            .. PangolinCommand.BuildArguments(config)
+            .. modeParts
         ];
         return string.Join('\n', parts);
+    }
+
+    private static string PrepareUserspaceSocketPath()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            throw new TunnelConfigurationException("Userspace mode is only available on Linux. Use system mode instead.");
+        }
+
+        // Under /tmp rather than Jellyfin's data folder: that can be a network or host-shared
+        // mount where Unix sockets don't work.
+        const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+        var directory = Path.Combine(Path.GetTempPath(), string.Create(CultureInfo.InvariantCulture, $"jellyfin-pangolin-{UnixIdentity.EffectiveUserId}"));
+        try
+        {
+            Directory.CreateDirectory(directory, OwnerOnly);
+
+            // Throws if another user created the directory, so nobody else can swap the socket.
+            File.SetUnixFileMode(directory, OwnerOnly);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new TunnelConfigurationException($"{directory} belongs to another user. Remove it and restart the tunnel.", ex);
+        }
+
+        return Path.Combine(directory, "olm.sock");
     }
 
     private static LogLevel GetLogLevel(string line)
@@ -400,24 +428,16 @@ public sealed partial class TunnelManager : IHostedService, IDisposable
 
     private async Task<int> RunClientAsync(PluginConfiguration config, CancellationToken cancellationToken)
     {
-        SetState(TunnelState.Starting, "Preparing the Pangolin CLI.");
-
-        // The CLI exits immediately unless it runs as root, so say why up front instead of retrying forever.
-        if (!config.UseSudo && UnixIdentity.EffectiveUserId != 0)
+        lock (_stateLock)
         {
-            throw new TunnelConfigurationException(string.Create(
-                CultureInfo.InvariantCulture,
-                $"Jellyfin runs as user ID {UnixIdentity.EffectiveUserId}, but the Pangolin CLI must run as root to create the tunnel interface. On the linuxserver.io image set PUID=0 and PGID=0; on a bare-metal install use \"Launch through sudo\". See the README."));
+            _secret = config.ClientSecret.Trim();
         }
 
-        var executable = await _cliProvider.GetExecutableAsync(config, cancellationToken).ConfigureAwait(false);
+        var (executable, startInfo) = config.UserspaceMode
+            ? await PrepareUserspaceAsync(config, cancellationToken).ConfigureAwait(false)
+            : await PrepareSystemAsync(config, cancellationToken).ConfigureAwait(false);
 
-        if (await _olmApi.IsRunningAsync(cancellationToken).ConfigureAwait(false))
-        {
-            throw new InvalidOperationException($"Another Pangolin client is already running on this host (it owns {OlmApiClient.SocketPath}). Only one can run at a time.");
-        }
-
-        using var process = new Process { StartInfo = PangolinCommand.CreateStartInfo(executable, config) };
+        using var process = new Process { StartInfo = startInfo };
         process.OutputDataReceived += OnClientOutput;
         process.ErrorDataReceived += OnClientOutput;
 
@@ -470,6 +490,51 @@ public sealed partial class TunnelManager : IHostedService, IDisposable
                 _startedAt = null;
             }
         }
+    }
+
+    private async Task<(string Executable, ProcessStartInfo StartInfo)> PrepareUserspaceAsync(PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        SetState(TunnelState.Starting, "Starting the userspace tunnel.");
+        var executable = UserspaceHelper.GetExecutablePath();
+        var socketPath = PrepareUserspaceSocketPath();
+        _olmApi.SocketPath = socketPath;
+
+        // This socket belongs to this plugin, so anything answering on it is a helper left
+        // over from a Jellyfin crash. It still holds the forwarded ports; shut it down first.
+        if (await _olmApi.IsRunningAsync(cancellationToken).ConfigureAwait(false))
+        {
+            _logger.LogWarning("Stopping a userspace helper left over from a previous run");
+            await _olmApi.RequestExitAsync(cancellationToken).ConfigureAwait(false);
+            for (var i = 0; i < 20 && await _olmApi.IsRunningAsync(cancellationToken).ConfigureAwait(false); i++)
+            {
+                await Task.Delay(500, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return (executable, PangolinCommand.CreateUserspaceStartInfo(executable, config, socketPath));
+    }
+
+    private async Task<(string Executable, ProcessStartInfo StartInfo)> PrepareSystemAsync(PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        SetState(TunnelState.Starting, "Preparing the Pangolin CLI.");
+
+        // The CLI exits immediately unless it runs as root, so say why up front instead of retrying forever.
+        if (!config.UseSudo && UnixIdentity.EffectiveUserId != 0)
+        {
+            throw new TunnelConfigurationException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Jellyfin runs as user ID {UnixIdentity.EffectiveUserId}, but system mode needs root to create the tunnel interface. Switch to userspace mode, or run Jellyfin as root (PUID=0 and PGID=0 on linuxserver.io), or use \"Launch through sudo\" on a bare-metal install."));
+        }
+
+        var executable = await _cliProvider.GetExecutableAsync(config, cancellationToken).ConfigureAwait(false);
+        _olmApi.SocketPath = OlmApiClient.SystemSocketPath;
+
+        if (await _olmApi.IsRunningAsync(cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException($"Another Pangolin client is already running on this host (it owns {OlmApiClient.SystemSocketPath}). Only one can run at a time.");
+        }
+
+        return (executable, PangolinCommand.CreateStartInfo(executable, config));
     }
 
     private async Task StopClientAsync(Process process)
@@ -526,6 +591,12 @@ public sealed partial class TunnelManager : IHostedService, IDisposable
         var line = AnsiEscapeRegex().Replace(e.Data, string.Empty).TrimEnd();
         lock (_stateLock)
         {
+            // olm prints its whole tunnel config, secret included, at debug level.
+            if (_secret is { Length: > 0 })
+            {
+                line = line.Replace(_secret, "********", StringComparison.Ordinal);
+            }
+
             _recentOutput.Enqueue(line);
             while (_recentOutput.Count > MaxOutputLines)
             {

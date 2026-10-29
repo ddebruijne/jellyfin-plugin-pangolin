@@ -1,0 +1,48 @@
+diff -ruN a/olm/connect.go b/olm/connect.go
+--- a/olm/connect.go
++++ b/olm/connect.go
+@@ -90,9 +90,12 @@
+ 	// package's darwin code paths would otherwise run for real here (the NE
+ 	// build shares GOOS=darwin with the CLI), unlike iOS where they're already
+ 	// no-ops via a GOOS check.
+-	network.NativeConfigDisabled = o.tunnelConfig.FileDescriptorTun != 0
++	network.NativeConfigDisabled = o.tunnelConfig.FileDescriptorTun != 0 || UserspaceDeviceFactory != nil
+ 
+ 	o.tdev, err = func() (tun.Device, error) {
++		if UserspaceDeviceFactory != nil {
++			return UserspaceDeviceFactory(wgData.TunnelIP, wgData.UtilitySubnet, o.tunnelConfig.MTU)
++		}
+ 		if o.tunnelConfig.FileDescriptorTun != 0 {
+ 			return olmDevice.CreateTUNFromFD(o.tunnelConfig.FileDescriptorTun, o.tunnelConfig.MTU)
+ 		}
+diff -ruN a/olm/olm.go b/olm/olm.go
+--- a/olm/olm.go
++++ b/olm/olm.go
+@@ -268,8 +268,11 @@
+ 		config.WakeUpDebounce = 3 * time.Second
+ 	}
+ 
+-	logger.Debug("Checking permissions for native interface")
+-	err := permissions.CheckNativeInterfacePermissions()
++	var err error
++	if UserspaceDeviceFactory == nil {
++		logger.Debug("Checking permissions for native interface")
++		err = permissions.CheckNativeInterfacePermissions()
++	}
+ 	if err != nil {
+ 		logger.Fatal("Insufficient permissions to create native TUN interface: %v", err)
+ 		return nil, err
+diff -ruN a/olm/userspace.go b/olm/userspace.go
+--- a/olm/userspace.go
++++ b/olm/userspace.go
+@@ -0,0 +1,10 @@
++package olm
++
++import "golang.zx2c4.com/wireguard/tun"
++
++// UserspaceDeviceFactory, when set, replaces the kernel TUN device with a
++// caller-provided device (for example a gVisor netstack) and turns off all
++// host network configuration, so olm can run without root privileges.
++//
++// Added by jellyfin-plugin-pangolin; not part of upstream olm.
++var UserspaceDeviceFactory func(tunnelIP string, utilitySubnet string, mtu int) (tun.Device, error)

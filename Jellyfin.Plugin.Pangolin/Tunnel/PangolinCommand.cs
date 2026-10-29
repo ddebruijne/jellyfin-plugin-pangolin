@@ -8,7 +8,7 @@ using Jellyfin.Plugin.Pangolin.Configuration;
 namespace Jellyfin.Plugin.Pangolin.Tunnel;
 
 /// <summary>
-/// Builds the <c>pangolin up client</c> invocation for a configuration.
+/// Builds the command line for the Pangolin CLI (system mode) or the userspace helper.
 /// </summary>
 public static class PangolinCommand
 {
@@ -23,7 +23,7 @@ public static class PangolinCommand
     ];
 
     /// <summary>
-    /// Creates the start info for the client process.
+    /// Creates the start info for the Pangolin CLI in system mode.
     /// </summary>
     /// <param name="executable">Path to the pangolin executable.</param>
     /// <param name="config">The plugin configuration.</param>
@@ -32,15 +32,7 @@ public static class PangolinCommand
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var startInfo = new ProcessStartInfo
-        {
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
+        var startInfo = CreateBaseStartInfo();
         if (config.UseSudo)
         {
             // -n fails instead of prompting. The sudoers rule has to keep the PANGOLIN_* variables (env_keep).
@@ -58,18 +50,62 @@ public static class PangolinCommand
             startInfo.ArgumentList.Add(argument);
         }
 
-        foreach (var name in _inheritedSettingVariables)
+        SetEnvironment(startInfo, config);
+        return startInfo;
+    }
+
+    /// <summary>
+    /// Creates the start info for the userspace helper.
+    /// </summary>
+    /// <param name="executable">Path to the pangolin-userspace helper.</param>
+    /// <param name="config">The plugin configuration.</param>
+    /// <param name="socketPath">Where the helper should serve its control API.</param>
+    /// <returns>The process start info.</returns>
+    public static ProcessStartInfo CreateUserspaceStartInfo(string executable, PluginConfiguration config, string socketPath)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        var startInfo = CreateBaseStartInfo();
+        startInfo.FileName = executable;
+        foreach (var argument in BuildUserspaceArguments(config, socketPath))
         {
-            startInfo.Environment.Remove(name);
+            startInfo.ArgumentList.Add(argument);
         }
 
-        // Passed through the environment so the secret doesn't show up in `ps`.
-        startInfo.Environment["PANGOLIN_ENDPOINT"] = config.Endpoint.Trim();
-        startInfo.Environment["PANGOLIN_CLIENT_ID"] = config.ClientId.Trim();
-        startInfo.Environment["PANGOLIN_CLIENT_SECRET"] = config.ClientSecret.Trim();
-        startInfo.Environment["NO_COLOR"] = "1";
-
+        SetEnvironment(startInfo, config);
         return startInfo;
+    }
+
+    /// <summary>
+    /// Builds the userspace helper's command line arguments.
+    /// </summary>
+    /// <param name="config">The plugin configuration.</param>
+    /// <param name="socketPath">Where the helper should serve its control API.</param>
+    /// <returns>The arguments.</returns>
+    public static IReadOnlyList<string> BuildUserspaceArguments(PluginConfiguration config, string socketPath)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        var arguments = new List<string>
+        {
+            "--socket=" + socketPath,
+            "--mtu=" + config.Mtu.ToString(CultureInfo.InvariantCulture),
+            "--log-level=" + (string.IsNullOrWhiteSpace(config.LogLevel) ? "info" : config.LogLevel.Trim()),
+            "--disable-relay=" + Flag(config.DisableRelay)
+        };
+
+        var upstreamDns = SplitList(config.UpstreamDns);
+        if (upstreamDns.Length > 0)
+        {
+            arguments.Add("--upstream-dns=" + string.Join(',', upstreamDns));
+        }
+
+        if (PortForward.TryParseAll(config.Forwards, out var forwards, out _))
+        {
+            arguments.AddRange(forwards.Select(f => "--forward=" + f));
+        }
+
+        return arguments;
     }
 
     /// <summary>
@@ -108,6 +144,32 @@ public static class PangolinCommand
         }
 
         return arguments;
+    }
+
+    private static ProcessStartInfo CreateBaseStartInfo()
+    {
+        return new ProcessStartInfo
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+    }
+
+    private static void SetEnvironment(ProcessStartInfo startInfo, PluginConfiguration config)
+    {
+        foreach (var name in _inheritedSettingVariables)
+        {
+            startInfo.Environment.Remove(name);
+        }
+
+        // Passed through the environment so the secret doesn't show up in `ps`.
+        startInfo.Environment["PANGOLIN_ENDPOINT"] = config.Endpoint.Trim();
+        startInfo.Environment["PANGOLIN_CLIENT_ID"] = config.ClientId.Trim();
+        startInfo.Environment["PANGOLIN_CLIENT_SECRET"] = config.ClientSecret.Trim();
+        startInfo.Environment["NO_COLOR"] = "1";
     }
 
     private static string Flag(bool value) => value ? "true" : "false";

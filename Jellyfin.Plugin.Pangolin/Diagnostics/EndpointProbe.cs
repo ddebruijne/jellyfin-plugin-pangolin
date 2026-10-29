@@ -58,7 +58,8 @@ public static class EndpointProbe
             if (useTls)
             {
                 step = "TLS handshake";
-                await HandshakeAsync(socket, host, result, timeout.Token).ConfigureAwait(false);
+                var viaLocalForward = addresses.All(IPAddress.IsLoopback);
+                await HandshakeAsync(socket, host, viaLocalForward, result, timeout.Token).ConfigureAwait(false);
             }
 
             result.Success = true;
@@ -79,7 +80,7 @@ public static class EndpointProbe
         return result;
     }
 
-    private static async Task HandshakeAsync(Socket socket, string host, ProbeResult result, CancellationToken cancellationToken)
+    private static async Task HandshakeAsync(Socket socket, string host, bool viaLocalForward, ProbeResult result, CancellationToken cancellationToken)
     {
         var stream = new NetworkStream(socket, ownsSocket: false);
         await using (stream.ConfigureAwait(false))
@@ -92,7 +93,7 @@ public static class EndpointProbe
                     TargetHost = host,
                     RemoteCertificateValidationCallback = (_, certificate, chain, errors) =>
                     {
-                        Describe(certificate, chain, errors, result);
+                        Describe(certificate, chain, errors, viaLocalForward, result);
 
                         // Validation stays on: an untrusted certificate fails the probe like it
                         // would fail the LDAP plugin, but the details are captured first.
@@ -106,7 +107,7 @@ public static class EndpointProbe
         }
     }
 
-    private static void Describe(X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors, ProbeResult result)
+    private static void Describe(X509Certificate? certificate, X509Chain? chain, SslPolicyErrors errors, bool viaLocalForward, ProbeResult result)
     {
         if (certificate is X509Certificate2 cert)
         {
@@ -132,7 +133,9 @@ public static class EndpointProbe
 
         if (errors.HasFlag(SslPolicyErrors.RemoteCertificateNameMismatch))
         {
-            problems.Add("The certificate does not cover this host name. Connect using a name listed in the certificate (e.g. the resource alias) instead of an IP.");
+            problems.Add(viaLocalForward
+                ? "The certificate does not cover 127.0.0.1. That's expected for a userspace mode port forward; turn on \"Skip SSL/TLS Verification\" in the LDAP plugin, or forward plain LDAP (port 389) instead."
+                : "The certificate does not cover this host name. Connect using a name listed in the certificate (e.g. the resource alias) instead of an IP.");
         }
 
         if (errors.HasFlag(SslPolicyErrors.RemoteCertificateChainErrors))

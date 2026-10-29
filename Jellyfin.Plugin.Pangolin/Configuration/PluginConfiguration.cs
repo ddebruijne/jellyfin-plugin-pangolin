@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Jellyfin.Plugin.Pangolin.Tunnel;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.Pangolin.Configuration;
@@ -33,6 +34,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the machine client secret.
     /// </summary>
     public string ClientSecret { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the tunnel runs in userspace (no root, resources reached through
+    /// local port forwards) instead of creating a WireGuard interface with the Pangolin CLI.
+    /// </summary>
+    public bool UserspaceMode { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the userspace mode port forwards, one per line as LOCALPORT=HOST:PORT.
+    /// </summary>
+    public string Forwards { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets an explicit path to the pangolin executable. Empty means download it.
@@ -131,6 +143,20 @@ public class PluginConfiguration : BasePluginConfiguration
         if (Mtu is < 576 or > 9000)
         {
             problems.Add("MTU must be between 576 and 9000.");
+        }
+
+        if (UserspaceMode)
+        {
+            if (!PortForward.TryParseAll(Forwards, out var forwards, out var error))
+            {
+                problems.Add(error!);
+            }
+            else if (forwards.Count == 0)
+            {
+                problems.Add("Userspace mode needs at least one port forward, e.g. 6360=ldap.home.internal:636.");
+            }
+
+            return problems;
         }
 
         if (string.IsNullOrWhiteSpace(InterfaceName) || InterfaceName.Trim().Length > 15)

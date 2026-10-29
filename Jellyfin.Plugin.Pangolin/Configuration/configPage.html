@@ -5,14 +5,14 @@
     <title>Pangolin</title>
 </head>
 <body>
-    <div id="PangolinConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div id="PangolinConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox,emby-textarea">
         <div data-role="content">
             <div class="content-primary">
                 <div class="verticalSection">
                     <div class="sectionTitleContainer flex align-items-center">
                         <h2 class="sectionTitle">Pangolin</h2>
                     </div>
-                    <p>Runs the Pangolin CLI as a machine client so this server can reach private resources on your Pangolin network, such as an LDAPS server for the LDAP Authentication plugin.</p>
+                    <p>Connects this server to your Pangolin network as a machine client so it can reach private resources, such as an LDAPS server for the LDAP Authentication plugin.</p>
                 </div>
 
                 <div class="verticalSection">
@@ -59,6 +59,23 @@
                     </div>
 
                     <div class="verticalSection">
+                        <h3 class="sectionTitle">Tunnel mode</h3>
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="pangolinMode">Mode</label>
+                            <select is="emby-select" id="pangolinMode" class="emby-select-withcolor emby-select">
+                                <option value="userspace">Userspace (no root needed)</option>
+                                <option value="system">System (WireGuard interface, needs root)</option>
+                            </select>
+                            <div class="fieldDescription">Userspace runs the tunnel inside a helper process and makes resources available as local ports. It works on managed hosts and unprivileged containers. System mode runs the Pangolin CLI, which needs root, NET_ADMIN and /dev/net/tun, and makes resources reachable by their own addresses.</div>
+                        </div>
+                        <div class="inputContainer pangolinUserspaceOnly">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinForwards">Port forwards</label>
+                            <textarea id="pangolinForwards" is="emby-textarea" class="emby-textarea" rows="4" placeholder="6360=ldap.home.internal:636"></textarea>
+                            <div class="fieldDescription">One per line as <code>LOCALPORT=HOST:PORT</code>. Each local port listens on 127.0.0.1 and connects through the tunnel to the host, which can be a resource alias or IP. Point the LDAP plugin at 127.0.0.1 and the local port.</div>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection pangolinSystemOnly">
                         <h3 class="sectionTitle">Pangolin CLI</h3>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="pangolinCliVersion">CLI version</label>
@@ -81,14 +98,14 @@
 
                     <div class="verticalSection">
                         <h3 class="sectionTitle">DNS</h3>
-                        <div class="checkboxContainer checkboxContainer-withDescription">
+                        <div class="checkboxContainer checkboxContainer-withDescription pangolinSystemOnly">
                             <label class="emby-checkbox-label">
                                 <input id="pangolinOverrideDns" type="checkbox" is="emby-checkbox" />
                                 <span>Resolve resource aliases</span>
                             </label>
                             <div class="fieldDescription checkboxFieldDescription">Lets the client take over DNS so private resource aliases (e.g. ldap.home.internal) resolve. Needed for LDAPS if the certificate is issued for the alias.</div>
                         </div>
-                        <div class="inputContainer">
+                        <div class="inputContainer pangolinSystemOnly">
                             <label class="inputLabel inputLabelUnfocused" for="pangolinMatchDomains">Match domains</label>
                             <input id="pangolinMatchDomains" type="text" is="emby-input" placeholder="*.home.internal" />
                             <div class="fieldDescription">Comma-separated patterns sent to Pangolin DNS. Other lookups go straight to the system resolver. Empty sends everything through Pangolin DNS.</div>
@@ -98,7 +115,7 @@
                             <input id="pangolinUpstreamDns" type="text" is="emby-input" placeholder="1.1.1.1, 9.9.9.9" />
                             <div class="fieldDescription">Comma-separated servers for names that are not Pangolin resources. Empty keeps the client default.</div>
                         </div>
-                        <div class="checkboxContainer checkboxContainer-withDescription">
+                        <div class="checkboxContainer checkboxContainer-withDescription pangolinSystemOnly">
                             <label class="emby-checkbox-label">
                                 <input id="pangolinTunnelDns" type="checkbox" is="emby-checkbox" />
                                 <span>Send DNS queries through the tunnel</span>
@@ -109,7 +126,7 @@
 
                     <div class="verticalSection">
                         <h3 class="sectionTitle">Advanced</h3>
-                        <div class="checkboxContainer checkboxContainer-withDescription">
+                        <div class="checkboxContainer checkboxContainer-withDescription pangolinSystemOnly">
                             <label class="emby-checkbox-label">
                                 <input id="pangolinPreferLocalRoutes" type="checkbox" is="emby-checkbox" />
                                 <span>Prefer local routes</span>
@@ -123,7 +140,7 @@
                             </label>
                             <div class="fieldDescription checkboxFieldDescription">Only allow direct (hole-punched) connections to sites.</div>
                         </div>
-                        <div class="inputContainer">
+                        <div class="inputContainer pangolinSystemOnly">
                             <label class="inputLabel inputLabelUnfocused" for="pangolinInterfaceName">Interface name</label>
                             <input id="pangolinInterfaceName" type="text" is="emby-input" maxlength="15" />
                         </div>
@@ -144,7 +161,7 @@
 
                     <div class="verticalSection">
                         <h3 class="sectionTitle">Connection test</h3>
-                        <div class="fieldDescription">Checks that Jellyfin can reach a resource through the tunnel and shows the certificate it presents. Uses the values below without saving them.</div>
+                        <div class="fieldDescription">Checks that Jellyfin can reach a resource through the tunnel and shows the certificate it presents. In userspace mode, test 127.0.0.1 and a forwarded port. Uses the values below without saving them.</div>
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="pangolinProbeHost">Host</label>
                             <input id="pangolinProbeHost" type="text" is="emby-input" placeholder="ldap.home.internal" />
@@ -177,7 +194,7 @@
             (function () {
                 var pluginUniqueId = '42c6c2e7-09d5-4b7f-a6d6-d96cf3d02621';
                 var page = document.querySelector('#PangolinConfigPage');
-                var textFields = ['Endpoint', 'ClientId', 'ClientSecret', 'BinaryPath', 'CliVersion', 'InterfaceName', 'MatchDomains', 'UpstreamDns', 'LogLevel', 'ProbeHost'];
+                var textFields = ['Endpoint', 'ClientId', 'ClientSecret', 'Forwards', 'BinaryPath', 'CliVersion', 'InterfaceName', 'MatchDomains', 'UpstreamDns', 'LogLevel', 'ProbeHost'];
                 var numberFields = ['Mtu', 'ProbePort'];
                 var boolFields = ['Enabled', 'UseSudo', 'OverrideDns', 'TunnelDns', 'PreferLocalRoutes', 'DisableRelay', 'ProbeUseTls'];
                 var statusTimer = null;
@@ -186,12 +203,20 @@
                     return page.querySelector('#pangolin' + name);
                 }
 
+                function applyMode() {
+                    var userspace = field('Mode').value === 'userspace';
+                    page.querySelectorAll('.pangolinSystemOnly').forEach(function (el) { el.style.display = userspace ? 'none' : ''; });
+                    page.querySelectorAll('.pangolinUserspaceOnly').forEach(function (el) { el.style.display = userspace ? '' : 'none'; });
+                }
+
                 function loadConfig() {
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginUniqueId).then(function (config) {
                         textFields.forEach(function (name) { field(name).value = config[name] || ''; });
                         numberFields.forEach(function (name) { field(name).value = config[name]; });
                         boolFields.forEach(function (name) { field(name).checked = !!config[name]; });
+                        field('Mode').value = config.UserspaceMode ? 'userspace' : 'system';
+                        applyMode();
                         Dashboard.hideLoadingMsg();
                     });
                 }
@@ -262,6 +287,8 @@
                     statusTimer = null;
                 });
 
+                field('Mode').addEventListener('change', applyMode);
+
                 page.querySelector('#pangolinRestart').addEventListener('click', function () {
                     Dashboard.showLoadingMsg();
                     ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('Pangolin/Restart'), dataType: 'json' })
@@ -304,6 +331,7 @@
                         textFields.forEach(function (name) { config[name] = field(name).value.trim(); });
                         numberFields.forEach(function (name) { config[name] = parseInt(field(name).value, 10) || 0; });
                         boolFields.forEach(function (name) { config[name] = field(name).checked; });
+                        config.UserspaceMode = field('Mode').value === 'userspace';
                         return ApiClient.updatePluginConfiguration(pluginUniqueId, config);
                     }).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
