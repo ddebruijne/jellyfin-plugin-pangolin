@@ -33,7 +33,24 @@ services:
 
 The tunnel, its routes and the DNS override then live in the container's network namespace and don't touch the host (unless the container uses `network_mode: host`).
 
-The linuxserver.io image runs Jellyfin as an unprivileged user and has no sudo, so it won't work unless you run it with `PUID=0`.
+### Docker (linuxserver.io image)
+
+The linuxserver.io image runs Jellyfin as the unprivileged `abc` user and doesn't include sudo. Run Jellyfin as root by setting `PUID`/`PGID` to 0, and add the same device and capability:
+
+```yaml
+services:
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    environment:
+      - PUID=0
+      - PGID=0
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+```
+
+Leave **Launch through sudo** off and **Binary path** empty, and the plugin downloads the CLI itself. Files Jellyfin creates from then on (in `/config`, and next to your media if you save artwork or NFOs there) will be owned by root on the host.
 
 ### Bare metal (Jellyfin runs as `jellyfin`)
 

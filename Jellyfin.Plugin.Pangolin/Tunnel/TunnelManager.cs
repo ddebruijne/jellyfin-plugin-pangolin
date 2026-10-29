@@ -401,6 +401,15 @@ public sealed partial class TunnelManager : IHostedService, IDisposable
     private async Task<int> RunClientAsync(PluginConfiguration config, CancellationToken cancellationToken)
     {
         SetState(TunnelState.Starting, "Preparing the Pangolin CLI.");
+
+        // The CLI exits immediately unless it runs as root, so say why up front instead of retrying forever.
+        if (!config.UseSudo && UnixIdentity.EffectiveUserId != 0)
+        {
+            throw new TunnelConfigurationException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Jellyfin runs as user ID {UnixIdentity.EffectiveUserId}, but the Pangolin CLI must run as root to create the tunnel interface. On the linuxserver.io image set PUID=0 and PGID=0; on a bare-metal install use \"Launch through sudo\". See the README."));
+        }
+
         var executable = await _cliProvider.GetExecutableAsync(config, cancellationToken).ConfigureAwait(false);
 
         if (await _olmApi.IsRunningAsync(cancellationToken).ConfigureAwait(false))
@@ -415,6 +424,10 @@ public sealed partial class TunnelManager : IHostedService, IDisposable
         try
         {
             process.Start();
+        }
+        catch (Win32Exception ex) when (config.UseSudo)
+        {
+            throw new TunnelConfigurationException("sudo is not available here (the linuxserver.io image doesn't include it). Turn off \"Launch through sudo\" and run Jellyfin as root instead: PUID=0 and PGID=0 on linuxserver.io.", ex);
         }
         catch (Win32Exception ex)
         {

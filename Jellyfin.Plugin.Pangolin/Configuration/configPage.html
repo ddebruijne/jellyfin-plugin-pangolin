@@ -75,7 +75,7 @@
                                 <input id="pangolinUseSudo" type="checkbox" is="emby-checkbox" />
                                 <span>Launch through sudo</span>
                             </label>
-                            <div class="fieldDescription checkboxFieldDescription">The CLI must run as root to create the WireGuard interface. Enable this when Jellyfin itself does not run as root; see the README for the sudoers rule.</div>
+                            <div class="fieldDescription checkboxFieldDescription">The CLI must run as root to create the WireGuard interface. Only for bare-metal installs where Jellyfin runs as its own user and a sudoers rule is set up (see the README). In Docker, leave this off and run Jellyfin as root (PUID=0 and PGID=0 on linuxserver.io).</div>
                         </div>
                     </div>
 
