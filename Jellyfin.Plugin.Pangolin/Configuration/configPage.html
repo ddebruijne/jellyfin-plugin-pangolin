@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Pangolin</title>
+</head>
+<body>
+    <div id="PangolinConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="verticalSection">
+                    <div class="sectionTitleContainer flex align-items-center">
+                        <h2 class="sectionTitle">Pangolin</h2>
+                    </div>
+                    <p>Runs the Pangolin CLI as a machine client so this server can reach private resources on your Pangolin network, such as an LDAPS server for the LDAP Authentication plugin.</p>
+                </div>
+
+                <div class="verticalSection">
+                    <h3 class="sectionTitle">Status</h3>
+                    <div id="pangolinStatusSummary" class="fieldDescription">Loading…</div>
+                    <table id="pangolinPeers" style="width:100%; margin-top:0.5em; display:none;">
+                        <thead>
+                            <tr><th style="text-align:left">Site</th><th style="text-align:left">State</th><th style="text-align:left">Path</th><th style="text-align:left">RTT</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                    <details style="margin-top:0.5em">
+                        <summary>Recent client output</summary>
+                        <pre id="pangolinOutput" style="max-height:20em; overflow:auto; white-space:pre-wrap; font-size:85%;"></pre>
+                    </details>
+                    <button is="emby-button" type="button" id="pangolinRestart" class="raised emby-button" style="margin-top:0.5em">
+                        <span>Restart tunnel</span>
+                    </button>
+                </div>
+
+                <form id="PangolinConfigForm">
+                    <div class="verticalSection">
+                        <h3 class="sectionTitle">Machine client</h3>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="pangolinEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>Enable tunnel</span>
+                            </label>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinEndpoint">Pangolin endpoint</label>
+                            <input id="pangolinEndpoint" type="url" is="emby-input" placeholder="https://pangolin.example.com" />
+                            <div class="fieldDescription">URL of your Pangolin dashboard.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinClientId">Client ID</label>
+                            <input id="pangolinClientId" type="text" is="emby-input" autocomplete="off" />
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinClientSecret">Client secret</label>
+                            <input id="pangolinClientSecret" type="password" is="emby-input" autocomplete="new-password" />
+                            <div class="fieldDescription">Create a machine client under Clients in the Pangolin dashboard and give it access to the resources Jellyfin needs.</div>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h3 class="sectionTitle">Pangolin CLI</h3>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinCliVersion">CLI version</label>
+                            <input id="pangolinCliVersion" type="text" is="emby-input" placeholder="0.19.1" />
+                            <div class="fieldDescription">Release of <a href="https://github.com/fosrl/cli/releases" target="_blank" rel="noopener">fosrl/cli</a> to download, or <code>latest</code>. Downloads are checked against the SHA-256 digest GitHub publishes.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinBinaryPath">Binary path</label>
+                            <input id="pangolinBinaryPath" type="text" is="emby-input" placeholder="/usr/local/bin/pangolin" />
+                            <div class="fieldDescription">Use an existing pangolin executable instead of downloading one. Required when using sudo.</div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="pangolinUseSudo" type="checkbox" is="emby-checkbox" />
+                                <span>Launch through sudo</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">The CLI must run as root to create the WireGuard interface. Enable this when Jellyfin itself does not run as root; see the README for the sudoers rule.</div>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h3 class="sectionTitle">DNS</h3>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="pangolinOverrideDns" type="checkbox" is="emby-checkbox" />
+                                <span>Resolve resource aliases</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">Lets the client take over DNS so private resource aliases (e.g. ldap.home.internal) resolve. Needed for LDAPS if the certificate is issued for the alias.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinMatchDomains">Match domains</label>
+                            <input id="pangolinMatchDomains" type="text" is="emby-input" placeholder="*.home.internal" />
+                            <div class="fieldDescription">Comma-separated patterns sent to Pangolin DNS. Other lookups go straight to the system resolver. Empty sends everything through Pangolin DNS.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinUpstreamDns">Upstream DNS servers</label>
+                            <input id="pangolinUpstreamDns" type="text" is="emby-input" placeholder="1.1.1.1, 9.9.9.9" />
+                            <div class="fieldDescription">Comma-separated servers for names that are not Pangolin resources. Empty keeps the client default.</div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="pangolinTunnelDns" type="checkbox" is="emby-checkbox" />
+                                <span>Send DNS queries through the tunnel</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">Only when the upstream DNS server is itself a Pangolin resource.</div>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h3 class="sectionTitle">Advanced</h3>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="pangolinPreferLocalRoutes" type="checkbox" is="emby-checkbox" />
+                                <span>Prefer local routes</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">If a CIDR resource overlaps this server's LAN, keep LAN traffic local so clients can still reach Jellyfin.</div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="pangolinDisableRelay" type="checkbox" is="emby-checkbox" />
+                                <span>Disable relay</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">Only allow direct (hole-punched) connections to sites.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinInterfaceName">Interface name</label>
+                            <input id="pangolinInterfaceName" type="text" is="emby-input" maxlength="15" />
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinMtu">MTU</label>
+                            <input id="pangolinMtu" type="number" is="emby-input" min="576" max="9000" />
+                        </div>
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="pangolinLogLevel">Client log level</label>
+                            <select is="emby-select" id="pangolinLogLevel" class="emby-select-withcolor emby-select">
+                                <option value="debug">Debug</option>
+                                <option value="info">Info</option>
+                                <option value="warn">Warn</option>
+                                <option value="error">Error</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="verticalSection">
+                        <h3 class="sectionTitle">Connection test</h3>
+                        <div class="fieldDescription">Checks that Jellyfin can reach a resource through the tunnel and shows the certificate it presents. Uses the values below without saving them.</div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinProbeHost">Host</label>
+                            <input id="pangolinProbeHost" type="text" is="emby-input" placeholder="ldap.home.internal" />
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="pangolinProbePort">Port</label>
+                            <input id="pangolinProbePort" type="number" is="emby-input" min="1" max="65535" />
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="pangolinProbeUseTls" type="checkbox" is="emby-checkbox" />
+                                <span>TLS handshake (LDAPS)</span>
+                            </label>
+                        </div>
+                        <button is="emby-button" type="button" id="pangolinProbe" class="raised emby-button">
+                            <span>Test connection</span>
+                        </button>
+                        <pre id="pangolinProbeResult" style="white-space:pre-wrap; display:none;"></pre>
+                    </div>
+
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <script type="text/javascript">
+            (function () {
+                var pluginUniqueId = '42c6c2e7-09d5-4b7f-a6d6-d96cf3d02621';
+                var page = document.querySelector('#PangolinConfigPage');
+                var textFields = ['Endpoint', 'ClientId', 'ClientSecret', 'BinaryPath', 'CliVersion', 'InterfaceName', 'MatchDomains', 'UpstreamDns', 'LogLevel', 'ProbeHost'];
+                var numberFields = ['Mtu', 'ProbePort'];
+                var boolFields = ['Enabled', 'UseSudo', 'OverrideDns', 'TunnelDns', 'PreferLocalRoutes', 'DisableRelay', 'ProbeUseTls'];
+                var statusTimer = null;
+
+                function field(name) {
+                    return page.querySelector('#pangolin' + name);
+                }
+
+                function loadConfig() {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginUniqueId).then(function (config) {
+                        textFields.forEach(function (name) { field(name).value = config[name] || ''; });
+                        numberFields.forEach(function (name) { field(name).value = config[name]; });
+                        boolFields.forEach(function (name) { field(name).checked = !!config[name]; });
+                        Dashboard.hideLoadingMsg();
+                    });
+                }
+
+                function formatDuration(startedAt) {
+                    var seconds = Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000));
+                    if (seconds < 120) { return seconds + ' s'; }
+                    if (seconds < 7200) { return Math.round(seconds / 60) + ' min'; }
+                    return Math.round(seconds / 3600) + ' h';
+                }
+
+                function renderStatus(status) {
+                    var parts = [status.State];
+                    if (status.Message) { parts.push(status.Message); }
+                    if (status.StartedAt) { parts.push('Up ' + formatDuration(status.StartedAt) + ' (pid ' + status.ProcessId + ').'); }
+                    if (status.Connected === true) { parts.push('Connected to Pangolin.'); }
+                    if (status.Connected === false) { parts.push('Not connected to Pangolin yet.'); }
+                    if (status.ClientError) { parts.push(status.ClientError); }
+                    if (status.RestartCount > 0) { parts.push('Restarts: ' + status.RestartCount + '.'); }
+                    page.querySelector('#pangolinStatusSummary').textContent = parts.join(' · ');
+
+                    var table = page.querySelector('#pangolinPeers');
+                    var body = table.querySelector('tbody');
+                    body.textContent = '';
+                    (status.Peers || []).forEach(function (peer) {
+                        var row = document.createElement('tr');
+                        var path = peer.Relayed ? 'relay' : (peer.Local ? 'local' : 'direct');
+                        [peer.Name || ('site ' + peer.SiteId), peer.Connected ? 'up' : 'down', path, peer.Connected ? peer.RttMilliseconds + ' ms' : '–'].forEach(function (text) {
+                            var cell = document.createElement('td');
+                            cell.textContent = text;
+                            row.appendChild(cell);
+                        });
+                        body.appendChild(row);
+                    });
+                    table.style.display = body.children.length ? '' : 'none';
+
+                    page.querySelector('#pangolinOutput').textContent = (status.RecentOutput || []).join('\n');
+                }
+
+                function refreshStatus() {
+                    return ApiClient.getJSON(ApiClient.getUrl('Pangolin/Status')).then(renderStatus, function () {
+                        page.querySelector('#pangolinStatusSummary').textContent = 'Could not load the tunnel status.';
+                    });
+                }
+
+                function describeProbe(result) {
+                    var lines = [result.Success ? 'OK' : 'FAILED'];
+                    if (result.Error) { lines.push(result.Error); }
+                    if (result.ResolvedAddresses && result.ResolvedAddresses.length) { lines.push('Resolved: ' + result.ResolvedAddresses.join(', ')); }
+                    if (result.ConnectedAddress) { lines.push('Connected to ' + result.ConnectedAddress + ' in ' + result.ConnectMilliseconds + ' ms'); }
+                    if (result.TlsProtocol) { lines.push('TLS: ' + result.TlsProtocol); }
+                    if (result.CertificateSubject) { lines.push('Certificate: ' + result.CertificateSubject); }
+                    if (result.CertificateIssuer) { lines.push('Issuer: ' + result.CertificateIssuer); }
+                    if (result.CertificateDnsNames && result.CertificateDnsNames.length) { lines.push('Names: ' + result.CertificateDnsNames.join(', ')); }
+                    if (result.CertificateNotAfter) { lines.push('Expires: ' + new Date(result.CertificateNotAfter).toLocaleString()); }
+                    (result.CertificateProblems || []).forEach(function (problem) { lines.push('! ' + problem); });
+                    return lines.join('\n');
+                }
+
+                page.addEventListener('pageshow', function () {
+                    loadConfig();
+                    refreshStatus();
+                    statusTimer = setInterval(refreshStatus, 5000);
+                });
+
+                page.addEventListener('pagehide', function () {
+                    clearInterval(statusTimer);
+                    statusTimer = null;
+                });
+
+                page.querySelector('#pangolinRestart').addEventListener('click', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('Pangolin/Restart'), dataType: 'json' })
+                        .then(renderStatus)
+                        .catch(function () { Dashboard.alert('Restarting the tunnel failed. Check the server log.'); })
+                        .finally(function () { Dashboard.hideLoadingMsg(); });
+                });
+
+                page.querySelector('#pangolinProbe').addEventListener('click', function () {
+                    var output = page.querySelector('#pangolinProbeResult');
+                    var request = {
+                        Host: field('ProbeHost').value.trim(),
+                        Port: parseInt(field('ProbePort').value, 10) || 636,
+                        UseTls: field('ProbeUseTls').checked
+                    };
+                    if (!request.Host) {
+                        Dashboard.alert('Enter a host to test.');
+                        return;
+                    }
+
+                    output.style.display = '';
+                    output.textContent = 'Testing ' + request.Host + ':' + request.Port + '…';
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('Pangolin/Probe'),
+                        data: JSON.stringify(request),
+                        contentType: 'application/json',
+                        dataType: 'json'
+                    }).then(function (result) {
+                        output.textContent = describeProbe(result);
+                    }).catch(function () {
+                        output.textContent = 'The test request failed. Check the server log.';
+                    });
+                });
+
+                page.querySelector('#PangolinConfigForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginUniqueId).then(function (config) {
+                        textFields.forEach(function (name) { config[name] = field(name).value.trim(); });
+                        numberFields.forEach(function (name) { config[name] = parseInt(field(name).value, 10) || 0; });
+                        boolFields.forEach(function (name) { config[name] = field(name).checked; });
+                        return ApiClient.updatePluginConfiguration(pluginUniqueId, config);
+                    }).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                        setTimeout(refreshStatus, 1000);
+                    });
+                    return false;
+                });
+            })();
+        </script>
+    </div>
+</body>
+</html>
